@@ -1,0 +1,6 @@
+{
+  "name": "عداد الإنترنت",
+  "description": "مراقب سرعة الإنترنت واستهلاك البيانات اليومي والشهري مع دعم الوضع المظلم وتخصيص الأيقونات",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
