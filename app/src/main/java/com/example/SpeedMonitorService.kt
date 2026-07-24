@@ -7,10 +7,15 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.net.TrafficStats
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.graphics.drawable.IconCompat
 import kotlinx.coroutines.*
 import kotlin.math.max
 
@@ -66,14 +71,50 @@ class SpeedMonitorService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val totalSpeed = rxSpeed + txSpeed
+        val speedText = formatSpeedShort(totalSpeed)
+        val iconBitmap = createTextBitmap(speedText)
+        val smallIcon = IconCompat.createWithBitmap(iconBitmap)
+
         return NotificationCompat.Builder(this, "speed_channel")
             .setContentTitle("سرعة الإنترنت")
             .setContentText("↓ ${formatSpeed(rxSpeed)} | ↑ ${formatSpeed(txSpeed)}")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(smallIcon)
             .setContentIntent(pendingIntent)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .build()
+    }
+
+    private fun createTextBitmap(text: String): Bitmap {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 50f
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+
+        // Determine size
+        val width = 100
+        val height = 100
+
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        // Calculate vertical center
+        val fontMetrics = paint.fontMetrics
+        val y = height / 2f - (fontMetrics.descent + fontMetrics.ascent) / 2f
+
+        canvas.drawText(text, width / 2f, y, paint)
+        return bitmap
+    }
+
+    private fun formatSpeedShort(bytes: Long): String {
+        return when {
+            bytes < 1024 -> "$bytes"
+            bytes < 1024 * 1024 -> "${bytes / 1024}K"
+            else -> String.format("%.1fM", bytes / (1024f * 1024f))
+        }
     }
 
     private fun formatSpeed(bytes: Long): String {
