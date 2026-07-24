@@ -72,8 +72,8 @@ class SpeedMonitorService : Service() {
         )
 
         val totalSpeed = rxSpeed + txSpeed
-        val speedText = formatSpeedShort(totalSpeed)
-        val iconBitmap = createTextBitmap(speedText)
+        val speedParts = formatSpeedShort(totalSpeed)
+        val iconBitmap = createTextBitmap(speedParts.first, speedParts.second)
         val smallIcon = IconCompat.createWithBitmap(iconBitmap)
 
         return NotificationCompat.Builder(this, "speed_channel")
@@ -86,34 +86,42 @@ class SpeedMonitorService : Service() {
             .build()
     }
 
-    private fun createTextBitmap(text: String): Bitmap {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private fun createTextBitmap(number: String, unit: String): Bitmap {
+        val width = 100
+        val height = 100
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val paintNumber = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 50f
+            textSize = 55f
             textAlign = Paint.Align.CENTER
             isFakeBoldText = true
         }
 
-        // Determine size
-        val width = 100
-        val height = 100
+        val paintUnit = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 35f
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
 
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
+        // Draw number
+        val numberY = height / 2f + 5f // Slightly above center
+        canvas.drawText(number, width / 2f, numberY, paintNumber)
 
-        // Calculate vertical center
-        val fontMetrics = paint.fontMetrics
-        val y = height / 2f - (fontMetrics.descent + fontMetrics.ascent) / 2f
+        // Draw unit
+        val unitY = height - 5f // Bottom edge
+        canvas.drawText(unit, width / 2f, unitY, paintUnit)
 
-        canvas.drawText(text, width / 2f, y, paint)
         return bitmap
     }
 
-    private fun formatSpeedShort(bytes: Long): String {
+    private fun formatSpeedShort(bytes: Long): Pair<String, String> {
         return when {
-            bytes < 1024 -> "$bytes"
-            bytes < 1024 * 1024 -> "${bytes / 1024}K"
-            else -> String.format("%.1fM", bytes / (1024f * 1024f))
+            bytes < 1024 -> Pair("$bytes", "B")
+            bytes < 1024 * 1024 -> Pair("${bytes / 1024}", "K")
+            else -> Pair(String.format("%.1f", bytes / (1024f * 1024f)), "M")
         }
     }
 
