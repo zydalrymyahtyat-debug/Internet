@@ -5,6 +5,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -26,11 +31,34 @@ class SpeedMonitorService : Service() {
 
     private var lastRxBytes = TrafficStats.getTotalRxBytes()
     private var lastTxBytes = TrafficStats.getTotalTxBytes()
+    private var lastAppBytes = mutableMapOf<Int, Long>()
+
+
+    private var connectivityManager: ConnectivityManager? = null
+    private var isNetworkConnected = true
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            isNetworkConnected = true
+            updateNotification(SpeedTracker.currentDownloadSpeed.value, SpeedTracker.currentUploadSpeed.value)
+        }
+
+        override fun onLost(network: Network) {
+            isNetworkConnected = false
+            // Clear notification by passing 0s or we can actually stop foreground here if preferred.
+            // For now, we update it to show 0/disconnected.
+            updateNotification(0L, 0L)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForeground(1, createNotification(0L, 0L))
+
+        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        connectivityManager?.registerDefaultNetworkCallback(networkCallback)
+
         startMonitoring()
     }
 
@@ -39,6 +67,8 @@ class SpeedMonitorService : Service() {
     }
 
     private fun startMonitoring() {
+        val packageManager = packageManager
+
         scope.launch {
             while (isActive) {
                 delay(1000)
@@ -53,6 +83,48 @@ class SpeedMonitorService : Service() {
 
                 SpeedTracker.currentDownloadSpeed.value = rxSpeed
                 SpeedTracker.currentUploadSpeed.value = txSpeed
+
+                // Track per app stats
+                val installedApps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                val currentAppUsageList = mutableListOf<AppUsageInfo>()
+
+                for (appInfo in installedApps) {
+                    val uid = appInfo.uid
+                    val uidRx = TrafficStats.getUidRxBytes(uid)
+                    val uidTx = TrafficStats.getUidTxBytes(uid)
+
+                    if (uidRx > 0 || uidTx > 0) {
+                        val totalBytesForUid = uidRx + uidTx
+                        val lastBytesForUid = lastAppBytes[uid] ?: 0L
+                        val speedBytesPerSec = max(0L, totalBytesForUid - lastBytesForUid)
+
+                        lastAppBytes[uid] = totalBytesForUid
+
+                        if (speedBytesPerSec > 0 || totalBytesForUid > 0) {
+                            val appName = packageManager.getApplicationLabel(appInfo).toString()
+                            // Note: Retrieving icon might be heavy to do every second for many apps.
+                            // We do it here for simplicity, but in a real app, it should be cached.
+                            var icon: Drawable? = null
+                            try {
+                                icon = packageManager.getApplicationIcon(appInfo)
+                            } catch (e: Exception) {}
+
+                            currentAppUsageList.add(
+                                AppUsageInfo(
+                                    uid = uid,
+                                    appName = appName,
+                                    packageName = appInfo.packageName,
+                                    icon = icon,
+                                    currentSpeedBytesPerSec = speedBytesPerSec,
+                                    totalBytes = totalBytesForUid
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Sort descending by speed
+                SpeedTracker.appUsageList.value = currentAppUsageList.sortedByDescending { it.currentSpeedBytesPerSec }
 
                 updateNotification(rxSpeed, txSpeed)
             }
@@ -71,6 +143,16 @@ class SpeedMonitorService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+                if (!isNetworkConnected) {
+            return NotificationCompat.Builder(this, "speed_channel")
+                .setContentTitle("لا يوجد اتصال بالإنترنت")
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentIntent(pendingIntent)
+                .setOnlyAlertOnce(true)
+                .setOngoing(true)
+                .build()
+        }
+
         val totalSpeed = rxSpeed + txSpeed
         val speedParts = formatSpeedShort(totalSpeed)
         val iconBitmap = createTextBitmap(speedParts.first, speedParts.second)
@@ -78,7 +160,7 @@ class SpeedMonitorService : Service() {
 
         return NotificationCompat.Builder(this, "speed_channel")
             .setContentTitle("سرعة الإنترنت")
-            .setContentText("↓ ${formatSpeed(rxSpeed)} | ↑ ${formatSpeed(txSpeed)}")
+            .setContentText("تحميل ${formatSpeed(rxSpeed)} | رفع ${formatSpeed(txSpeed)}")
             .setSmallIcon(smallIcon)
             .setContentIntent(pendingIntent)
             .setOnlyAlertOnce(true)
@@ -148,6 +230,7 @@ class SpeedMonitorService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        connectivityManager?.unregisterNetworkCallback(networkCallback)
         job.cancel()
     }
 
