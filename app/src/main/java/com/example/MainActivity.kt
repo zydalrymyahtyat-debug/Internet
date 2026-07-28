@@ -84,6 +84,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
     val uploadSpeed by SpeedTracker.currentUploadSpeed.collectAsState()
     val dailyUsage by SpeedTracker.dailyUsage.collectAsState()
     val monthlyUsage by SpeedTracker.monthlyUsage.collectAsState()
+    val appUsageList by SpeedTracker.appUsageList.collectAsState()
 
     val dailyLimitMb by SettingsManager.getDailyLimit(context).collectAsState(initial = 0)
     val gaugeColorName by SettingsManager.getGaugeColor(context).collectAsState(initial = "Primary")
@@ -137,6 +138,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
         }
     }
 
+        val isServiceRunning = remember { mutableStateOf(true) }
     var showLimitDialog by remember { mutableStateOf(false) }
     var showColorDialog by remember { mutableStateOf(false) }
 
@@ -249,6 +251,48 @@ fun MainScreen(modifier: Modifier = Modifier) {
             }
         }
 
+
+        if (appUsageList.isNotEmpty()) {
+            item {
+                Text(
+                    text = "التطبيقات النشطة حالياً",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 8.dp).fillMaxWidth()
+                )
+            }
+
+            items(appUsageList.size) { index ->
+                val app = appUsageList[index]
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // App Icon placeholder or generic icon if null
+                        Box(
+                            modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Apps, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(app.appName, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text(app.packageName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), maxLines = 1)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(formatSpeed(app.currentSpeedBytesPerSec), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("الإجمالي: ${formatBytes(app.totalBytes)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -257,6 +301,40 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("الإعدادات", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PowerSettingsNew, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text("تفعيل مراقب السرعة", fontSize = 16.sp)
+                                Text(if (isServiceRunning.value) "يعمل حالياً" else "متوقف", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            }
+                        }
+                        Switch(
+                            checked = isServiceRunning.value,
+                            onCheckedChange = { checked ->
+                                isServiceRunning.value = checked
+                                val serviceIntent = Intent(context, SpeedMonitorService::class.java)
+                                if (checked) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                        androidx.core.content.ContextCompat.startForegroundService(context, serviceIntent)
+                                    } else {
+                                        context.startService(serviceIntent)
+                                    }
+                                } else {
+                                    context.stopService(serviceIntent)
+                                }
+                            }
+                        )
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
 
                     Row(
                         modifier = Modifier
